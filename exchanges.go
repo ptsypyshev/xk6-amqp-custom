@@ -1,91 +1,64 @@
 package amqp
 
 import (
-	"fmt"
-
+	"github.com/pkg/errors"
 	amqpDriver "github.com/rabbitmq/amqp091-go"
+	"go.k6.io/k6/js/common"
 )
-
-// Exchange defines a connection to publish/subscribe destinations.
-type Exchange struct {
-	Version     string
-	Connections *map[int]*amqpDriver.Connection
-	MaxConnID   *int
-}
 
 // ExchangeOptions defines configuration settings for accessing an exchange.
 type ExchangeOptions struct {
-	ConnectionURL string
+	ConnectionURL string `json:"connection_url"`
 }
 
 // ExchangeDeclareOptions provides options when declaring (creating) an exchange.
 type ExchangeDeclareOptions struct {
-	ConnectionID int
-	Name         string
-	Kind         string
-	Durable      bool
-	AutoDelete   bool
-	Internal     bool
-	NoWait       bool
-	Args         amqpDriver.Table
+	Args       amqpDriver.Table `json:"args"`
+	Name       string           `json:"name"`
+	Kind       string           `json:"kind"`
+	Durable    bool             `json:"durable"`
+	AutoDelete bool             `json:"auto_delete"`
+	Internal   bool             `json:"internal"`
+	NoWait     bool             `json:"no_wait"`
 }
 
 // ExchangeDeleteOptions provides options when deleting an exchange.
 type ExchangeDeleteOptions struct {
-	ConnectionID int
+	Name string `json:"name"`
 }
 
 // ExchangeBindOptions provides options when binding (subscribing) one exchange to another.
 type ExchangeBindOptions struct {
-	ConnectionID            int
-	DestinationExchangeName string
-	SourceExchangeName      string
-	RoutingKey              string
-	NoWait                  bool
-	Args                    amqpDriver.Table
+	Args                    amqpDriver.Table `json:"args"`
+	DestinationExchangeName string           `json:"destination_exchange_name"`
+	SourceExchangeName      string           `json:"source_exchange_name"`
+	RoutingKey              string           `json:"routing_key"`
+	NoWait                  bool             `json:"no_wait"`
 }
 
 // ExchangeUnbindOptions provides options when unbinding (unsubscribing) one exchange from another.
 type ExchangeUnbindOptions struct {
-	ConnectionID            int
-	DestinationExchangeName string
-	SourceExchangeName      string
-	RoutingKey              string
-	NoWait                  bool
-	Args                    amqpDriver.Table
+	Args                    amqpDriver.Table `json:"args"`
+	DestinationExchangeName string           `json:"destination_exchange_name"`
+	SourceExchangeName      string           `json:"source_exchange_name"`
+	RoutingKey              string           `json:"routing_key"`
+	NoWait                  bool             `json:"no_wait"`
 }
 
-// GetConn gets an initialised connection by ID, or returns the last initialised one if ID is 0
-func (exchange *Exchange) GetConn(connID int) (*amqpDriver.Connection, error) {
-	if connID == 0 {
-		conn := (*exchange.Connections)[*exchange.MaxConnID]
-		if conn == nil {
-			return &amqpDriver.Connection{}, fmt.Errorf("connection not initialised")
-		}
-		return conn, nil
-	}
-
-	conn := (*exchange.Connections)[connID]
-	if conn == nil {
-		return &amqpDriver.Connection{}, fmt.Errorf("connection with ID %d not initialised", connID)
-	}
-	return conn, nil
-}
-
-// Declare creates a new exchange given the provided options.
-func (exchange *Exchange) Declare(options ExchangeDeclareOptions) error {
-	conn, err := exchange.GetConn(options.ConnectionID)
-	if err != nil {
-		return err
-	}
+// declareExchange creates a new exchange given the provided options.
+func (a *AMQP) declareExchange(conn *amqpDriver.Connection, options *ExchangeDeclareOptions) {
 	ch, err := conn.Channel()
 	if err != nil {
-		return err
+		wrappedError := errors.Wrap(ErrGetChannel, err.Error())
+		logger.WithField("connection", conn).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
 	}
+
 	defer func() {
 		_ = ch.Close()
 	}()
-	return ch.ExchangeDeclare(
+
+	err = ch.ExchangeDeclare(
 		options.Name,
 		options.Kind,
 		options.Durable,
@@ -94,68 +67,88 @@ func (exchange *Exchange) Declare(options ExchangeDeclareOptions) error {
 		options.NoWait,
 		options.Args,
 	)
+	if err != nil {
+		wrappedError := errors.Wrap(ErrDeclareExchange, err.Error())
+		logger.WithField("channel", ch).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
+	}
 }
 
-// Delete removes an exchange from the remote server given the exchange name.
-func (exchange *Exchange) Delete(name string, options ExchangeDeleteOptions) error {
-	conn, err := exchange.GetConn(options.ConnectionID)
-	if err != nil {
-		return err
-	}
+// bindExchange subscribes one exchange to another.
+func (a *AMQP) bindExchange(conn *amqpDriver.Connection, options *ExchangeBindOptions) {
 	ch, err := conn.Channel()
 	if err != nil {
-		return err
+		wrappedError := errors.Wrap(ErrGetChannel, err.Error())
+		logger.WithField("connection", conn).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
 	}
+
 	defer func() {
 		_ = ch.Close()
 	}()
-	return ch.ExchangeDelete(
-		name,
+
+	err = ch.ExchangeBind(
+		options.DestinationExchangeName,
+		options.RoutingKey,
+		options.SourceExchangeName,
+		options.NoWait,
+		options.Args,
+	)
+	if err != nil {
+		wrappedError := errors.Wrap(ErrBindExchange, err.Error())
+		logger.WithField("channel", ch).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
+	}
+}
+
+// unbindExchange removes a subscription from one exchange to another.
+func (a *AMQP) unbindExchange(conn *amqpDriver.Connection, options *ExchangeUnbindOptions) {
+	ch, err := conn.Channel()
+	if err != nil {
+		wrappedError := errors.Wrap(ErrGetChannel, err.Error())
+		logger.WithField("connection", conn).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
+	}
+
+	defer func() {
+		_ = ch.Close()
+	}()
+
+	err = ch.ExchangeUnbind(
+		options.DestinationExchangeName,
+		options.RoutingKey,
+		options.SourceExchangeName,
+		options.NoWait,
+		options.Args,
+	)
+	if err != nil {
+		wrappedError := errors.Wrap(ErrUnbindExchange, err.Error())
+		logger.WithField("channel", ch).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
+	}
+}
+
+// deleteExchange removes an exchange from the remote server given the exchange name.
+func (a *AMQP) deleteExchange(conn *amqpDriver.Connection, options *ExchangeDeleteOptions) {
+	ch, err := conn.Channel()
+	if err != nil {
+		wrappedError := errors.Wrap(ErrGetChannel, err.Error())
+		logger.WithField("connection", conn).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
+	}
+
+	defer func() {
+		_ = ch.Close()
+	}()
+
+	err = ch.ExchangeDelete(
+		options.Name,
 		false, // ifUnused
 		false, // noWait
 	)
-}
-
-// Bind subscribes one exchange to another.
-func (exchange *Exchange) Bind(options ExchangeBindOptions) error {
-	conn, err := exchange.GetConn(options.ConnectionID)
 	if err != nil {
-		return err
+		wrappedError := errors.Wrap(ErrDeleteExchange, err.Error())
+		logger.WithField("channel", ch).Error(wrappedError)
+		common.Throw(a.vu.Runtime(), wrappedError)
 	}
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = ch.Close()
-	}()
-	return ch.ExchangeBind(
-		options.DestinationExchangeName,
-		options.RoutingKey,
-		options.SourceExchangeName,
-		options.NoWait,
-		options.Args,
-	)
-}
-
-// Unbind removes a subscription from one exchange to another.
-func (exchange *Exchange) Unbind(options ExchangeUnbindOptions) error {
-	conn, err := exchange.GetConn(options.ConnectionID)
-	if err != nil {
-		return err
-	}
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = ch.Close()
-	}()
-	return ch.ExchangeUnbind(
-		options.DestinationExchangeName,
-		options.RoutingKey,
-		options.SourceExchangeName,
-		options.NoWait,
-		options.Args,
-	)
 }

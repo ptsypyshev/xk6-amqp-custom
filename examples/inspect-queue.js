@@ -1,13 +1,13 @@
-import Amqp from 'k6/x/amqp';
-import Queue from 'k6/x/amqp/queue';
+import {Connection} from "k6/x/amqp"; // import Amqp extension
 
 export default function () {
   const url = "amqp://guest:guest@localhost:5672/"
-  Amqp.start({
-    connection_url: url
-  })
+  const conn = new Connection({
+    connection_url: url,
+  });
   
   const queueName = 'K6 queue'
   console.log('Inspecting ' + queueName)
-  console.log(JSON.stringify(Queue.inspect(queueName), null, 2))
+
+  console.log(JSON.stringify(conn.inspectQueue({name: queueName}), null, 2))
 }
