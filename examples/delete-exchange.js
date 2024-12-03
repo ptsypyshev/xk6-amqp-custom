@@ -1,15 +1,16 @@
-import Amqp from 'k6/x/amqp';
-import Exchange from 'k6/x/amqp/exchange';
+import {Connection} from "k6/x/amqp"; // import Amqp extension
 
 export default function () {
   const url = "amqp://guest:guest@localhost:5672/"
-  Amqp.start({
-    connection_url: url
-  })
+  const conn = new Connection({
+    connection_url: url,
+  });
   
   const exchangeName = 'K6 exchange'
 
-  Exchange.delete(exchangeName)
+  conn.deleteExchange({
+    name: exchangeName
+  })
 
   console.log(exchangeName + " exchange deleted")
 }

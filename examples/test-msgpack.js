@@ -1,21 +1,36 @@
-import Amqp from 'k6/x/amqp';
-import Queue from 'k6/x/amqp/queue';
+import {Publisher, Consumer} from "k6/x/amqp"; // import Amqp extension
+
+const url = "amqp://guest:guest@localhost:5672/"
+const exchangeName = 'K6 exchange'
+const queueName = 'K6 general'
+const routingKey = 'rkey123'
+
+const exchange = {
+  name: exchangeName,
+  kind: "direct",
+  durable: true,
+};
+
+const queue = {
+  name: queueName,
+  routing_key: routingKey,
+  durable: true,
+};
+
+const publisher = new Publisher({
+  connection_url: url,
+  exchange: exchange,
+  queue: queue,
+});
+
+const consumer = new Consumer({
+  connection_url: url,
+  exchange: exchange,
+  queue: queue,
+});
 
 export default function () {
-  console.log("K6 amqp extension enabled, version: " + Amqp.version)
-  const url = "amqp://guest:guest@localhost:5672/"
-  Amqp.start({
-    connection_url: url
-  })
-  console.log("Connection opened: " + url)
-  
-  const queueName = 'K6 general'
-  
-  Queue.declare({
-    name: queueName
-  })
-
-  console.log(queueName + " queue is ready")
+  console.log("Publisher is ready")
 
   let body = {
     metadata: {
@@ -26,16 +41,16 @@ export default function () {
     }
   }
 
-  Amqp.publish({
-    queue_name: queueName,
+  publisher.publish({
+    exchange  : exchangeName,
+    routing_key: routingKey,
     body: JSON.stringify(body),
     content_type: "application/x-msgpack"
   })
 
-  const listener = function(data) { console.log('received data: ' + data) }
-  Amqp.listen({
-    queue_name: queueName,
-    listener: listener,
-    auto_ack: true
+  const data = consumer.consume({
+    read_timeout: '3s',
+    consume_limit: 1,
   })
+  console.log('received data: ' + data[0].body) 
 }

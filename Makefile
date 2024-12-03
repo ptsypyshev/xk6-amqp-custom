@@ -29,4 +29,8 @@ format:
 test:
 	go test -cover -race ./...
 
-.PHONY: build clean format help test
+## lint: Executes linter.
+lint:
+	golangci-lint run ./...
+
+.PHONY: build clean format help test lint

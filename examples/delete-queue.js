@@ -1,15 +1,16 @@
-import Amqp from 'k6/x/amqp';
-import Queue from 'k6/x/amqp/queue';
+import {Connection} from "k6/x/amqp"; // import Amqp extension
 
 export default function () {
   const url = "amqp://guest:guest@localhost:5672/"
-  Amqp.start({
-    connection_url: url
-  })
+  const conn = new Connection({
+    connection_url: url,
+  });
   
   const queueName = 'K6 queue'
   
-  Queue.delete(queueName)
+  conn.deleteQueue({
+    name: queueName
+  })
 
   console.log(queueName + " queue deleted")
 }
